@@ -5,6 +5,8 @@ import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.properties.ReadOnlyProperty
+import kotlin.reflect.KProperty
 import kotlin.system.exitProcess
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
@@ -69,20 +71,30 @@ object WorkContext {
 
 }
 
+class Potential<T>(compute: () -> T) : ReadOnlyProperty<Any?, T> {
+    private val t by lazy { compute() }
+    override fun getValue(thisRef: Any?, property: KProperty<*>): T = t
+    fun get() = t
+
+    fun executeNow() {
+        get()
+    }
+}
+
 @OptIn(ExperimentalTime::class)
-fun <T> lifecycle(name: String, block: () -> T): T {
+fun <T> lifecycle(name: String, block: () -> T): Potential<T> = Potential {
     var x: T
     println("> $name")
     val time = measureTime {
         x = block()
     }
     println("> $name done. Took $time")
-    return x
+    return@Potential x
 }
 
 @OptIn(ExperimentalTime::class)
 
-fun <T : Any> lifecycleNonNull(name: String, block: () -> T?): T {
+fun <T : Any> lifecycleNonNull(name: String, block: () -> T?): Potential<T> = Potential {
     var x: T?
     println("> $name")
     val time = measureTime {
@@ -93,5 +105,5 @@ fun <T : Any> lifecycleNonNull(name: String, block: () -> T?): T {
         exitProcess(1)
     }
     println("> $name done. Took $time")
-    return x as T
+    return@Potential x as T
 }

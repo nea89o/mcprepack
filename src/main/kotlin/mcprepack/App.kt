@@ -32,7 +32,8 @@ fun main(): Unit = lifecycle("Repacking") {
 
 
     WorkContext.setupWorkSpace()
-    if (true) {
+    val downloadDebugFiles = true
+    if (downloadDebugFiles) {
         WorkContext.getArtifact("net.minecraftforge", "forge", "1.19-41.1.0", "universal")
         WorkContext.getArtifact("net.minecraftforge", "forge", "1.19-41.1.0", "installer")
         WorkContext.getArtifact("de.oceanlabs.mcp", "mcp_config", "1.19-20220607.102129", extension = "zip")
@@ -45,28 +46,28 @@ fun main(): Unit = lifecycle("Repacking") {
         patches119.close()
     }
 
-    val legacyForgeInstallerJar = lifecycleNonNull("Downloading Installer") {
+    val legacyForgeInstallerJar by lifecycleNonNull("Downloading Installer") {
         WorkContext.getArtifact("net.minecraftforge", "forge", "1.8.9-11.15.1.2318-1.8.9", "installer")
     }
 
-    val legacyUserDev = lifecycleNonNull("Downloading userdev") {
+    val legacyUserDev by lifecycleNonNull("Downloading userdev") {
         WorkContext.getArtifact("net.minecraftforge", "forge", "1.8.9-11.15.1.2318-1.8.9", "userdev")
             ?.let(FileSystems::newFileSystem)
     }
-    val legacyForgeUniversal = lifecycleNonNull("Downloading universal") {
+    val legacyForgeUniversal by lifecycleNonNull("Downloading universal") {
         WorkContext.getArtifact("net.minecraftforge", "forge", "1.8.9-11.15.1.2318-1.8.9", "universal")
             ?.let(FileSystems::newFileSystem)
     }
-    val mcpStableFs = lifecycleNonNull("Downloading mcp stable") {
+    val mcpStableFs by lifecycleNonNull("Downloading mcp stable") {
         WorkContext.getArtifact("de.oceanlabs.mcp", "mcp_stable", "22-1.8.9", extension = "zip")
             ?.let(FileSystems::newFileSystem)
     }
-    val mcpSrgFs = lifecycleNonNull("Downloading mcp srg") {
+    val mcpSrgFs by lifecycleNonNull("Downloading mcp srg") {
         WorkContext.getArtifact("de.oceanlabs.mcp", "mcp", "1.8.9", "srg", extension = "zip")
             ?.let(FileSystems::newFileSystem)
     }
 
-    val (classesTiny, classesTsrg) = lifecycle("Generate Tiny classes") {
+    val variousTinies by lifecycle("Generate Tiny classes") {
         val classes = INamedMappingFile.load(Files.newInputStream(mcpSrgFs.getPath("joined.srg")))
         val tinyTemp = WorkContext.file("tiny-joined", "tiny")
         val tsrgTemp = WorkContext.file("tsrg-joined", "tsrg")
@@ -74,8 +75,10 @@ fun main(): Unit = lifecycle("Repacking") {
         classes.write(tsrgTemp, IMappingFile.Format.TSRG) // Write tsrg not tsrg2 so mojang mappings arent involved
         tinyTemp to tsrgTemp
     }
+    val classesTiny by lazy { variousTinies.first }
+    val classesTsrg by lazy { variousTinies.second }
 
-    val minecraftjar = lifecycle("Load Minecraft Jar") {
+    val minecraftjar by lifecycle("Load Minecraft Jar") {
         FileSystems.newFileSystem(Path.of("minecraft-merged.jar"))
     }
 
@@ -102,7 +105,7 @@ fun main(): Unit = lifecycle("Repacking") {
     }
 
 
-    val tinyV2Enhanced = lifecycle("Enhance tiny classes with methods and fields") {
+    val tinyV2Enhanced by lifecycle("Enhance tiny classes with methods and fields") {
         val params = readCSV(mcpStableFs.getPath("/params.csv"))
         val fields = readCSV(mcpStableFs.getPath("/fields.csv"))
         val methods = readCSV(mcpStableFs.getPath("/methods.csv"))
@@ -137,7 +140,7 @@ fun main(): Unit = lifecycle("Repacking") {
         newTinyFile
     }
 
-    val yarnCompatibleJar = lifecycle("Create v2 compatible \"yarn\" zip") {
+    val yarnCompatibleJar by lifecycle("Create v2 compatible \"yarn\" zip") {
         val x = WorkContext.file("yarn-1.8.9-v2", "zip")
         Files.delete(x)
         val fs = FileSystems.newFileSystem(x, mapOf("create" to true))
@@ -149,7 +152,7 @@ fun main(): Unit = lifecycle("Repacking") {
     }
 
 
-    val binpatchesLegacy = lifecycle("Unpack binpatches") {
+    val binpatchesLegacy by lifecycle("Unpack binpatches") {
         val inputStream =
             LzmaInputStream(legacyForgeUniversal.getPath("/binpatches.pack.lzma").inputStream(), Decoder())
         val patchJar = WorkContext.file("binpatches", "jar")
@@ -180,15 +183,15 @@ fun main(): Unit = lifecycle("Repacking") {
     val legacyDevJson =
         gson.fromJson(legacyUserDev.getPath("/dev.json").readText(), JsonObject::class.java)
 
-    val binpatchesModernClient = lifecycle("Modernize client binpatches") {
+    val binpatchesModernClient by lifecycle("Modernize client binpatches") {
         createBinPatchSubJar("client")
     }
 
-    val binpatchesModernServer = lifecycle("Modernize server binpatches") {
+    val binpatchesModernServer by lifecycle("Modernize server binpatches") {
         createBinPatchSubJar("server")
     }
 
-    val proguardLog = lifecycle("Create Proguard Obfuscation Log") {
+    val proguardLog by lifecycle("Create Proguard Obfuscation Log") {
         val x = WorkContext.file("proguard", "txt")
         x.bufferedWriter().use {
             val pro = ProguardWriter(it)
@@ -217,7 +220,7 @@ fun main(): Unit = lifecycle("Repacking") {
         x
     }
 
-    val modernForgeInstaller = lifecycle("Create Modern Forge Installer") {
+    val modernForgeInstaller by lifecycle("Create Modern Forge Installer") {
         val x = WorkContext.file("modern-forge-installer", "jar")
         x.deleteExisting()
         legacyForgeInstallerJar.copyTo(x)
@@ -238,7 +241,7 @@ fun main(): Unit = lifecycle("Repacking") {
         x
     }
 
-    val modernForgeUserdev = lifecycle("Create Modern Forge Userdev") {
+    val modernForgeUserdev by lifecycle("Create Modern Forge Userdev") {
         val x = WorkContext.file("forge-1.8.9-userdev", "jar")
         x.deleteExisting()
         val userdevModern = FileSystems.newFileSystem(x, mapOf("create" to true))
@@ -298,7 +301,7 @@ fun main(): Unit = lifecycle("Repacking") {
         x
     }
 
-    val mcpConfig = lifecycle("Create modern mcp_config") {
+    val mcpConfig by lifecycle("Create modern mcp_config") {
         val x = WorkContext.file("mcp_config-1.9.9", "jar")
         x.deleteExisting()
         val mcpConfigModern = FileSystems.newFileSystem(x, mapOf("create" to true))
@@ -463,9 +466,9 @@ fun main(): Unit = lifecycle("Repacking") {
                 }"""
             )
         }
-    }
+    }.executeNow()
 
-}
+}.executeNow()
 
 fun readCSV(path: Path): CSVFile {
     val lines = Files.readAllLines(path)

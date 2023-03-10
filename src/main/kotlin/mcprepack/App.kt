@@ -110,7 +110,7 @@ fun main(): Unit = lifecycle("Repacking") {
         val newTiny =
             TinyFile(TinyHeader(listOf("official", "intermediary", "named"), 2, 0, mapOf()), tinyFile.classEntries.map {
                 TinyClass(it.classNames + listOf(it.classNames[1]), it.methods.map { method ->
-                    val mcpMethod = methods.map.find { it["searge"] == method.methodNames[1] }
+                    val mcpMethod = methods.indexedBySearge[method.methodNames[1]]
                     TinyMethod(method.methodDescriptorInFirstNamespace,
                         method.methodNames + listOf(mcpMethod?.get("name") ?: method.methodNames[1]),
                         method.parameters,
@@ -118,7 +118,7 @@ fun main(): Unit = lifecycle("Repacking") {
                         method.comments + (mcpMethod?.get("desc")?.let { listOf(it) } ?: listOf()))
                     // TODO parameter names and better comments?
                 }, it.fields.map { field ->
-                    val mcpField = fields.map.find { it["searge"] == field.fieldNames[1] }
+                    val mcpField = fields.indexedBySearge[field.fieldNames[1]]
                     TinyField(findFieldDescriptorInMergedJar(it.classNames[0], field.fieldNames[0]),
                         field.fieldNames + listOf(mcpField?.get("name") ?: field.fieldNames[1]),
                         field.comments + (mcpField?.get("desc")?.let { listOf(it) } ?: listOf()))
@@ -154,7 +154,7 @@ fun main(): Unit = lifecycle("Repacking") {
     // TODO merge binpatches somehow? not sure how that would work, maybe look at essential loom
 
     fun createBinPatchSubJar(dist: String): Path {
-        val basePath = binpatchesLegacy.getPath("binpatch/client")
+        val basePath = binpatchesLegacy.getPath("binpatch/$dist")
         val modernPatchJar = WorkContext.file("binpatches-modern", "jar")
         modernPatchJar.deleteExisting()
         val patchJarFs = FileSystems.newFileSystem(modernPatchJar, mapOf("create" to true))
@@ -178,6 +178,35 @@ fun main(): Unit = lifecycle("Repacking") {
 
     val binpatchesModernServer = lifecycle("Modernize server binpatches") {
         createBinPatchSubJar("server")
+    }
+
+    val proguardLog = lifecycle("Create Proguard Obfuscation Log") {
+        val x = WorkContext.file("proguard", "txt")
+        x.bufferedWriter().use {
+            val pro = ProguardWriter(it)
+            val tinyFile = TinyV2Reader.read(tinyV2Enhanced)
+            tinyFile.classEntries.forEach { tinyClass ->
+                pro.visitClass(tinyClass.classNames[2], tinyClass.classNames[0])
+                tinyClass.fields.forEach { field ->
+                    val fd = FieldDescriptor.parseFieldDescriptor(field.fieldDescriptorInFirstNamespace)
+                    pro.visitField(
+                        field.fieldNames[2],
+                        field.fieldNames[0],
+                        fd.type.mapClassName(tinyFile).toProguardString()
+                    )
+                }
+                tinyClass.methods.forEach { method ->
+                    val md = MethodDescriptor.parseMethodDescriptor(method.methodDescriptorInFirstNamespace)
+                    pro.visitMethod(
+                        method.methodNames[2], method.methodNames[0],
+                        md.arguments.map { it.mapClassName(tinyFile) }
+                            .map { it.toProguardString() },
+                        md.returnType.mapClassName(tinyFile).toProguardString()
+                    )
+                }
+            }
+        }
+        x
     }
 
     val modernForgeInstaller = lifecycle("Create Modern Forge Installer") {
@@ -221,17 +250,42 @@ fun main(): Unit = lifecycle("Repacking") {
                 })
             })
             addProperty("universal", "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:universal@jar")
-            addProperty("sources", "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:sources@jar")
+            addProperty("sources", "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:universal@jar")
             addProperty("spec", 2)//Hahaha, yes, I follow the spec, so true
             add("libraries", JsonArray().apply {
                 legacyDevJson["libraries"].asJsonArray.forEach {
                     add(it.asJsonObject["name"])
                 }
             })
+            add("runs", JsonObject().apply {
+                add("client", JsonObject().apply {
+                    addProperty("name", "client")
+                    addProperty("main", "net.minecraft.launchwrapper.Launch")
+                    add("parents", JsonArray())
+                    add("args", JsonArray().apply {
+                        add("--accessToken")
+                        add("undefined")
+                        add("--assetsIndex")
+                        add("{assets_index}")
+                        add("--assetsDir")
+                        add("{assets_root}")
+                        add("--tweakClass")
+                        add("net.minecraftforge.fml.common.launcher.FMLTweaker")
+                    })
+                    add("jvmArgs", JsonArray())
+                    addProperty("client", true)
+                    addProperty("forceExit", true)
+                    add("env", JsonObject())
+                    add("props", JsonObject())
+                })
+            })
+            addProperty("spec", 2)
         }))
         userdevModern.getPath("/joined.lzma").outputStream().use {
             binpatchesModernClient.inputStream().copyTo(LzmaOutputStream(it, Encoder()))
         }
+        userdevModern.getPath("/META-INF").createDirectories()
+        legacyForgeUniversal.getPath("forge_at.cfg").copyTo(userdevModern.getPath("/META-INF/accesstransformer.cfg"))
         userdevModern.close()
         x
     }
@@ -243,7 +297,7 @@ fun main(): Unit = lifecycle("Repacking") {
         mcpConfigModern.getPath("config.json").writeText(gson.toJson(JsonObject().apply {
             addProperty("spec", 3)
             addProperty("version", "1.8.9")
-            addProperty("official", false)
+            addProperty("official", true)
             addProperty("encoding", "UTF-8")
             add("data", JsonObject().apply {
                 addProperty("mappings", "config/joined.tsrg")
@@ -261,13 +315,6 @@ fun main(): Unit = lifecycle("Repacking") {
                         addProperty("version", "1.8.9")
                         addProperty("name", "rename")
                     })
-                    /*
-                    add(JsonObject().apply {
-                        addProperty("type", "rename")
-                        addProperty("input", "{mergeOutput}")// TODO maybe strip? honestly not sure
-                        addProperty("libraries", "{listLibrariesOutput}")
-                        addProperty("mappings", "{mappings}")
-                    })*/
                 })
                 for (dist in listOf("client", "server")) {
                     add(dist, JsonArray().apply {
@@ -361,6 +408,8 @@ fun main(): Unit = lifecycle("Repacking") {
         modernForgeUserdev.copyTo(mavenFile("forge", "jar", "userdev"))
         modernForgeUserdev.copyTo(mavenFile("forge", "jar"))
         modernForgeInstaller.copyTo(mavenFile("forge", "jar", "installer"))
+
+        proguardLog.copyTo(mavenFile("official", "txt"))
     }
 
 }

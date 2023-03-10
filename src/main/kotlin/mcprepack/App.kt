@@ -420,6 +420,51 @@ fun main(): Unit = lifecycle("Repacking") {
         proguardLog.copyTo(mavenFile("official", "txt"))
     }
 
+    lifecycle("Generate gradle publication buildscript") {
+        WorkContext.workDir.resolve("settings.gradle.kts").createFile()
+        WorkContext.workDir.resolve("build.gradle.kts").writer().use {
+            it.append(
+                """
+                plugins { `maven-publish` }
+                
+                val allGroupId = "moe.nea.mcp"
+                
+                publishing {
+            """
+            )
+
+            fun pub(artifactId: String, version: String, artifacts: Map<String?, Path>) {
+                it.append(
+                    """
+                    publications.create<MavenPublication>("artifactId") {
+                        ${
+                        artifacts.map { (classifier, path) ->
+                            "this.artifact(file(${gson.toJson(path.toAbsolutePath().toString())})) {" +
+                                    (if (classifier == null) ""
+                                    else "this.classifier = ${gson.toJson(classifier)};") + "this.extension = \"jar\"}"
+                        }.joinToString(separator = "\n")
+                    }
+                        this.groupId = allGroupId
+                        this.artifactId = ${gson.toJson(artifactId)}
+                        this.version = ${gson.toJson(version)}
+                    }
+                """
+                )
+            }
+
+            pub("mcp-yarn", pubVersion, mapOf(null to yarnCompatibleJar, "v2" to yarnCompatibleJar))
+            it.append(
+                """
+                publications.filterIsInstance<MavenPublication>().forEach {
+                    it.pom {
+                        url.set("https://git.nea.moe/nea/mcprepack")
+                    }
+                }
+                }"""
+            )
+        }
+    }
+
 }
 
 fun readCSV(path: Path): CSVFile {

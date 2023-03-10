@@ -107,21 +107,29 @@ fun main(): Unit = lifecycle("Repacking") {
         val fields = readCSV(mcpStableFs.getPath("/fields.csv"))
         val methods = readCSV(mcpStableFs.getPath("/methods.csv"))
         val tinyFile = TinyV2Reader.read(classesTiny)
+        fun commentOrEmptyList(comment: String?) =
+            if (comment.isNullOrBlank()) listOf()
+            else listOf(comment)
+
         val newTiny =
             TinyFile(TinyHeader(listOf("official", "intermediary", "named"), 2, 0, mapOf()), tinyFile.classEntries.map {
                 TinyClass(it.classNames + listOf(it.classNames[1]), it.methods.map { method ->
                     val mcpMethod = methods.indexedBySearge[method.methodNames[1]]
-                    TinyMethod(method.methodDescriptorInFirstNamespace,
+                    TinyMethod(
+                        method.methodDescriptorInFirstNamespace,
                         method.methodNames + listOf(mcpMethod?.get("name") ?: method.methodNames[1]),
                         method.parameters,
                         method.localVariables,
-                        method.comments + (mcpMethod?.get("desc")?.let { listOf(it) } ?: listOf()))
-                    // TODO parameter names and better comments?
+                        method.comments + commentOrEmptyList(mcpMethod?.get("desc"))
+                    )
+                    // TODO parameter names
                 }, it.fields.map { field ->
                     val mcpField = fields.indexedBySearge[field.fieldNames[1]]
-                    TinyField(findFieldDescriptorInMergedJar(it.classNames[0], field.fieldNames[0]),
+                    TinyField(
+                        findFieldDescriptorInMergedJar(it.classNames[0], field.fieldNames[0]),
                         field.fieldNames + listOf(mcpField?.get("name") ?: field.fieldNames[1]),
-                        field.comments + (mcpField?.get("desc")?.let { listOf(it) } ?: listOf()))
+                        field.comments + commentOrEmptyList(mcpField?.get("desc"))
+                    )
                 }, it.comments.map { it })
             })
         val newTinyFile = WorkContext.file("tiny-joined-enhanced", "tiny")
@@ -415,9 +423,12 @@ fun main(): Unit = lifecycle("Repacking") {
 }
 
 fun readCSV(path: Path): CSVFile {
-    // TODO proper "" handling
     val lines = Files.readAllLines(path)
     val headers = lines.first().split(",")
-    val entries = lines.drop(1).map { it.split(",", limit = headers.size) }
+    val entries = lines.drop(1).map {
+        it.split(",", limit = headers.size).map {
+            if (it.firstOrNull() == '"') it.drop(1).dropLast(1).replace("\"\"", "\"") else it
+        }
+    }
     return CSVFile(headers, entries)
 }

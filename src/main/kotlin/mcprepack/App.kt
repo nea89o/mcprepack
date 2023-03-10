@@ -29,8 +29,9 @@ val gson = GsonBuilder()
 @OptIn(ExperimentalPathApi::class)
 fun main(): Unit = lifecycle("Repacking") {
     val mavenModulePub = "test"
-    val pubVersion = "1.8.9"
-    val accessVersion = "1.8.9"
+    val pubVersion = "1.12"
+    val accessVersion = "1.12"
+    val mcpVersion = "39-1.12"
 
     WorkContext.setupWorkSpace()
     val downloadDebugFiles = true
@@ -60,11 +61,11 @@ fun main(): Unit = lifecycle("Repacking") {
             ?.let(FileSystems::newFileSystem)
     }
     val mcpStableFs by lifecycleNonNull("Downloading mcp stable") {
-        WorkContext.getArtifact("de.oceanlabs.mcp", "mcp_stable", "22-1.8.9", extension = "zip")
+        WorkContext.getArtifact("de.oceanlabs.mcp", "mcp_stable", mcpVersion, extension = "zip")
             ?.let(FileSystems::newFileSystem)
     }
     val mcpSrgFs by lifecycleNonNull("Downloading mcp srg") {
-        WorkContext.getArtifact("de.oceanlabs.mcp", "mcp", "1.8.9", "srg", extension = "zip")
+        WorkContext.getArtifact("de.oceanlabs.mcp", "mcp", accessVersion, "srg", extension = "zip")
             ?.let(FileSystems::newFileSystem)
     }
 
@@ -106,7 +107,7 @@ fun main(): Unit = lifecycle("Repacking") {
     val minecraftjar by lifecycle("Merge Minecraft Jar") {
         val f = WorkContext.file("minecraft-merged", "jar")
         Merger(clientJar.toFile(), serverJar.toFile(), f.toFile()).process()
-        FileSystems.newFileSystem(Path.of("minecraft-merged.jar"))
+        FileSystems.newFileSystem(f)
     }
 
     val classCache = mutableMapOf<String, Map<String, String>>()
@@ -168,7 +169,7 @@ fun main(): Unit = lifecycle("Repacking") {
     }
 
     val yarnCompatibleJar by lifecycle("Create v2 compatible \"yarn\" zip") {
-        val x = WorkContext.file("yarn-1.8.9-v2", "zip")
+        val x = WorkContext.file("yarn", "zip")
         Files.delete(x)
         val fs = FileSystems.newFileSystem(x, mapOf("create" to true))
         val mappingsPath = fs.getPath("/mappings/mappings.tiny")
@@ -207,8 +208,8 @@ fun main(): Unit = lifecycle("Repacking") {
 
     }
 
-    val legacyDevJson =
-        gson.fromJson(legacyUserDev.getPath("/dev.json").readText(), JsonObject::class.java)
+    val legacyDevJson by lazy {
+        gson.fromJson(legacyUserDev.getPath("/dev.json").readText(), JsonObject::class.java) }
 
     val binpatchesModernClient by lifecycle("Modernize client binpatches") {
         createBinPatchSubJar("client")
@@ -269,7 +270,7 @@ fun main(): Unit = lifecycle("Repacking") {
     }
 
     val modernForgeUserdev by lifecycle("Create Modern Forge Userdev") {
-        val x = WorkContext.file("forge-1.8.9-userdev", "jar")
+        val x = WorkContext.file("forge-modern-userdev", "jar")
         x.deleteExisting()
         val userdevModern = FileSystems.newFileSystem(x, mapOf("create" to true))
         val config = userdevModern.getPath("config.json")
@@ -287,6 +288,7 @@ fun main(): Unit = lifecycle("Repacking") {
                     add("{patch}")
                 })
             })
+            // TODO generic forge dependencies
             addProperty("universal", "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:universal@jar")
             addProperty("sources", "net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:universal@jar")
             addProperty("spec", 2)//Hahaha, yes, I follow the spec, so true

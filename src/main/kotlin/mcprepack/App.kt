@@ -9,6 +9,7 @@ import lzma.sdk.lzma.Encoder
 import lzma.streams.LzmaInputStream
 import lzma.streams.LzmaOutputStream
 import net.fabricmc.stitch.commands.tinyv2.*
+import net.minecraftforge.mergetool.Merger
 import net.minecraftforge.srgutils.IMappingFile
 import net.minecraftforge.srgutils.INamedMappingFile
 import org.objectweb.asm.ClassReader
@@ -29,7 +30,7 @@ val gson = GsonBuilder()
 fun main(): Unit = lifecycle("Repacking") {
     val mavenModulePub = "test"
     val pubVersion = "1.8.9"
-
+    val accessVersion = "1.8.9"
 
     WorkContext.setupWorkSpace()
     val downloadDebugFiles = true
@@ -67,6 +68,7 @@ fun main(): Unit = lifecycle("Repacking") {
             ?.let(FileSystems::newFileSystem)
     }
 
+
     val variousTinies by lifecycle("Generate Tiny classes") {
         val classes = INamedMappingFile.load(Files.newInputStream(mcpSrgFs.getPath("joined.srg")))
         val tinyTemp = WorkContext.file("tiny-joined", "tiny")
@@ -78,7 +80,32 @@ fun main(): Unit = lifecycle("Repacking") {
     val classesTiny by lazy { variousTinies.first }
     val classesTsrg by lazy { variousTinies.second }
 
-    val minecraftjar by lifecycle("Load Minecraft Jar") {
+    val minecraftManifest by lifecycle("Resolve minecraft manifest") {
+        val f = WorkContext.file("version-manifest", "json")
+        require(WorkContext.httpGet("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", f))
+        val vm = gson.fromJson(f.readText(), JsonObject::class.java)
+        val version = vm["versions"].asJsonArray.map { it.asJsonObject }
+            .find { it["id"].asString == accessVersion } ?: error("Could not find minecraft version $accessVersion")
+        val cf = WorkContext.file("version", "json")
+        require(WorkContext.httpGet(version["url"].asString, cf))
+        gson.fromJson(cf.readText(), JsonObject::class.java)
+    }
+
+    val clientJar by lifecycle("Download client jar") {
+        val f = WorkContext.file("minecraft-client", "jar")
+        WorkContext.httpGet(minecraftManifest["downloads"].asJsonObject["client"].asJsonObject["url"].asString, f)
+        f
+    }
+
+    val serverJar by lifecycle("Download server jar") {
+        val f = WorkContext.file("minecraft-server", "jar")
+        WorkContext.httpGet(minecraftManifest["downloads"].asJsonObject["server"].asJsonObject["url"].asString, f)
+        f
+    }
+
+    val minecraftjar by lifecycle("Merge Minecraft Jar") {
+        val f = WorkContext.file("minecraft-merged", "jar")
+        Merger(clientJar.toFile(), serverJar.toFile(), f.toFile()).process()
         FileSystems.newFileSystem(Path.of("minecraft-merged.jar"))
     }
 

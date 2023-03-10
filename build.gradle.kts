@@ -28,6 +28,7 @@ dependencies {
     implementation("com.github.jponge:lzma-java:1.3")
     implementation("com.nothome:javaxdelta:2.0.1") // TODO maybe remove?
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("net.minecraftforge:mergetool:1.1.5")
 }
 
 application {

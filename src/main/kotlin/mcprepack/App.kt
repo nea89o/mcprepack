@@ -26,12 +26,19 @@ val gson = GsonBuilder()
     .setPrettyPrinting()
     .create()
 
+enum class Versions(val pubVersion: String, val accessVersion: String, val mcpVersion: String) {
+    _10809("1.8.9", "1.8.9", "22-1.8.9"),
+    _11200("1.12", "1.12", "39-1.12"),
+    ;
+}
+
 @OptIn(ExperimentalPathApi::class)
 fun main(): Unit = lifecycle("Repacking") {
     val mavenModulePub = "test"
-    val pubVersion = "1.12"
-    val accessVersion = "1.12"
-    val mcpVersion = "39-1.12"
+    val whichOne = Versions._10809
+    val pubVersion = whichOne.pubVersion
+    val accessVersion = whichOne.accessVersion
+    val mcpVersion = whichOne.mcpVersion
 
     WorkContext.setupWorkSpace()
     val downloadDebugFiles = true
@@ -464,16 +471,21 @@ fun main(): Unit = lifecycle("Repacking") {
                 publishing {
             """
             )
+            data class Publication(val classifier: String?, val path: Path, val extension: String = "jar")
 
-            fun pub(artifactId: String, version: String, artifacts: Map<String?, Path>) {
+            fun pub(artifactId: String, version: String, artifacts: List<Publication>) {
                 it.append(
                     """
                     publications.create<MavenPublication>("artifactId") {
                         ${
-                        artifacts.map { (classifier, path) ->
+                        artifacts.map { (classifier, path, extension) ->
                             "this.artifact(file(${gson.toJson(path.toAbsolutePath().toString())})) {" +
                                     (if (classifier == null) ""
-                                    else "this.classifier = ${gson.toJson(classifier)};") + "this.extension = \"jar\"}"
+                                    else "this.classifier = ${gson.toJson(classifier)};") + "this.extension = ${
+                                gson.toJson(
+                                    extension
+                                )
+                            }}"
                         }.joinToString(separator = "\n")
                     }
                         this.groupId = allGroupId
@@ -484,7 +496,15 @@ fun main(): Unit = lifecycle("Repacking") {
                 )
             }
 
-            pub("mcp-yarn", pubVersion, mapOf(null to yarnCompatibleJar, "v2" to yarnCompatibleJar))
+            pub(
+                "mcp-yarn",
+                pubVersion,
+                listOf(
+                    Publication(null, yarnCompatibleJar),
+                    Publication("v2", yarnCompatibleJar),
+                    Publication("official", proguardLog, "txt")
+                )
+            )
             it.append(
                 """
                 publications.filterIsInstance<MavenPublication>().forEach {
